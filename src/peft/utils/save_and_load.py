@@ -16,7 +16,7 @@ import warnings
 from typing import Optional
 
 import torch
-from huggingface_hub import file_exists, hf_hub_download
+from huggingface_hub import hf_hub_download
 from huggingface_hub.utils import EntryNotFoundError
 from safetensors.torch import load_file as safe_load_file
 
@@ -294,7 +294,7 @@ def load_peft_weights(model_id: str, device: Optional[str] = None, **hf_hub_down
             if hf_hub_download_kwargs.get("subfolder", None) is not None
             else SAFETENSORS_WEIGHTS_NAME
         )
-        has_remote_safetensors_file = file_exists(
+        has_remote_safetensors_file = check_file_exists_on_hf_hub(
             repo_id=model_id,
             filename=hub_filename,
             revision=hf_hub_download_kwargs.get("revision", None),

@@ -259,6 +259,24 @@ class LoraConfig(PeftConfig):
             )
         },
     )
+    use_mora: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "Enable MoRA"
+            )
+        },
+    )
+
+    mora_type: int = field(
+        default=1,
+        metadata={
+            "help": (
+                "Enable MoRA"
+            )
+        },
+    )
+
     # Enables replicating layers in a model to expand it to a larger model.
     layer_replication: Optional[list[tuple[int, int]]] = field(
         default=None,

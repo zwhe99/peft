@@ -72,7 +72,24 @@ class OraModel(BaseTuner):
     def __init__(self, model, config, adapter_name) -> None:
         super().__init__(model, config, adapter_name)
 
-    def _scan_shape(self, config) -> tuple[int, int]:
+    def _scan_module(self, config) -> dict[str, dict[str, dict[str, Union[tuple[int, int], list[int], int]]]]:
+        """
+        Scans the model's modules and groups them based on their type and shape.
+
+        Args:
+            config: The configuration object.
+
+        Returns:
+            A dictionary containing the grouped modules. Each module type is a key in the dictionary,
+            and the corresponding value is a dictionary with the following keys:
+                - "shape": The shape of the modules.
+                - "layer_ids": A list of layer IDs for the modules.
+                - "num_layers": The number of layers for the module type.
+
+        Raises:
+            ValueError: If no layers types compatible with Ora were found.
+            AssertionError: If there is a shape mismatch for any module type across layers.
+        """
         model_config = getattr(self.model, "config", {"model_type": "custom"})
         if hasattr(model_config, "to_dict"):
             model_config = model_config.to_dict()
@@ -98,6 +115,7 @@ class OraModel(BaseTuner):
             msg = "No layers types compatible with Ora were found. Please check `peft_config.target_modules`."
             raise ValueError(msg)
 
+        # Group modules across layers
         grouped_dict = defaultdict(list)
         pattern = re.compile(r'layers\.(\d+)\.(.+)')
 
@@ -109,9 +127,12 @@ class OraModel(BaseTuner):
                 grouped_dict[module_name].append((layer_id, value))
 
         grouped_dict = dict(grouped_dict)
+
+        # Assert each type of module has the same shape across layers
         for key, value in grouped_dict.items():
             assert all([v[1] == value[0][1] for v in value]), f"Shape mismatch for {key} layers: {value}"
 
+        # Add the number of layers for each module type
         for key in grouped_dict.keys():
             grouped_dict[key] = {
                 "shape": grouped_dict[key][0][1],
@@ -122,13 +143,12 @@ class OraModel(BaseTuner):
         return grouped_dict
 
     def _init_ora_A_ora_B(self, config: OraConfig, adapter_name: str) -> None:
-        # use of persistent to exclude ora_A and ora_B from the state dict if we choose not to save them.
         self.ora_A = nn.ModuleDict({})
         self.ora_B = nn.ModuleDict({})
         self.ora_indices_A = {}
         self.ora_indices_B = {}
 
-        module2shape = self._scan_shape(config)
+        module2shape = self._scan_module(config)
         for key, value in module2shape.items():
             in_dim = value["shape"][1]
             out_dim = value["shape"][0]

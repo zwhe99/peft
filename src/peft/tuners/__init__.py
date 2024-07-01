@@ -34,3 +34,4 @@ from .poly import PolyConfig, PolyModel
 from .ln_tuning import LNTuningConfig, LNTuningModel
 from .vera import VeraConfig, VeraModel
 from .ora import OraConfig, OraModel
+from .ola import OlaConfig, OlaModel

@@ -36,38 +36,38 @@ from peft.utils import (
 )
 
 from ..tuners_utils import _maybe_include_all_linear_layers
-from .config import OraConfig
-from .layer import Linear, OraLayer
+from .config import OlaConfig
+from .layer import Linear, OlaLayer
 
-class OraModel(BaseTuner):
+class OlaModel(BaseTuner):
     """
-    Creates Vector-based Random Matrix Adaptation (Ora) model from a pretrained transformers model.
+    Creates Vector-based Random Matrix Adaptation (Ola) model from a pretrained transformers model.
 
     Args:
         model ([`~transformers.PreTrainedModel`]): The model to be adapted.
-        config ([`OraConfig`]): The configuration of the Ora model.
+        config ([`OlaConfig`]): The configuration of the Ola model.
         adapter_name (`str`): The name of the adapter, defaults to `"default"`.
 
     Returns:
-        `torch.nn.Module`: The Ora model.
+        `torch.nn.Module`: The Ola model.
 
     Example:
 
         ```py
         >>> from transformers import AutoModelForCausalLM
-        >>> from peft import OraConfig, get_peft_model
+        >>> from peft import OlaConfig, get_peft_model
 
         >>> base_model = AutoModelForCausalLM.from_pretrained("facebook/opt-125m")
-        >>> config = OraConfig(r=128)
+        >>> config = OlaConfig(r=128)
         >>> model = get_peft_model(base_model, config)
         ```
 
     **Attributes**:
         - **model** ([`~transformers.PreTrainedModel`]) -- The model to be adapted.
-        - **peft_config** ([`OraConfig`]): The configuration of the Ora model.
+        - **peft_config** ([`OlaConfig`]): The configuration of the Ola model.
     """
 
-    prefix: str = "ora_"
+    prefix: str = "ola_"
 
     def __init__(self, model, config, adapter_name) -> None:
         super().__init__(model, config, adapter_name)
@@ -87,7 +87,7 @@ class OraModel(BaseTuner):
                 - "num_layers": The number of layers for the module type.
 
         Raises:
-            ValueError: If no layers types compatible with Ora were found.
+            ValueError: If no layers types compatible with Ola were found.
             AssertionError: If there is a shape mismatch for any module type across layers.
         """
         model_config = getattr(self.model, "config", {"model_type": "custom"})
@@ -112,7 +112,7 @@ class OraModel(BaseTuner):
             module2shape[key] = module_shape
 
         if not module2shape:
-            msg = "No layers types compatible with Ora were found. Please check `peft_config.target_modules`."
+            msg = "No layers types compatible with Ola were found. Please check `peft_config.target_modules`."
             raise ValueError(msg)
 
         # Group modules across layers
@@ -142,11 +142,11 @@ class OraModel(BaseTuner):
 
         return grouped_dict
 
-    def _init_ora_A_ora_B(self, config: OraConfig, adapter_name: str) -> None:
-        self.ora_A = nn.ModuleDict({})
-        self.ora_B = nn.ModuleDict({})
-        self.ora_indices_A = {}
-        self.ora_indices_B = {}
+    def _init_ola_A_ola_B(self, config: OlaConfig, adapter_name: str) -> None:
+        self.ola_A = nn.ModuleDict({})
+        self.ola_B = nn.ModuleDict({})
+        self.ola_indices_A = {}
+        self.ola_indices_B = {}
 
         module2shape = self._scan_module(config)
         for key, value in module2shape.items():
@@ -154,50 +154,49 @@ class OraModel(BaseTuner):
             out_dim = value["shape"][0]
             num_layers = value["num_layers"]
             layer_ids = value["layer_ids"]
-            assert (config.r * num_layers) % config.effective_r == 0, "effective_r should be a factor of r * num_layers"
 
-            para_buget = (in_dim * config.r + config.r * out_dim) * num_layers
-            in_and_out_buget = para_buget // config.effective_r
+            r_buget = config.r * num_layers
+            extra_r = config.effective_r - config.r
+            assert extra_r % 2 == 0
+            half_extra_r = extra_r // 2
 
-            in_buget = int(in_and_out_buget * (in_dim / (in_dim + out_dim)))
-            out_buget = in_and_out_buget - in_buget
+            if adapter_name not in self.ola_A:
+                self.ola_A[adapter_name] = nn.ModuleDict({})
 
-            if adapter_name not in self.ora_A:
-                self.ora_A[adapter_name] = nn.ModuleDict({})
+            if adapter_name not in self.ola_B:
+                self.ola_B[adapter_name] = nn.ModuleDict({})
 
-            if adapter_name not in self.ora_B:
-                self.ora_B[adapter_name] = nn.ModuleDict({})
+            self.ola_A[adapter_name][key] = nn.Linear(in_dim, r_buget, bias=False)
+            self.ola_B[adapter_name][key] = nn.Linear(r_buget, out_dim, bias=False)
 
-            self.ora_A[adapter_name][key] = nn.Linear(in_buget, config.effective_r, bias=False)
-            self.ora_B[adapter_name][key] = nn.Linear(config.effective_r, out_buget, bias=False)
+            nn.init.kaiming_uniform_(self.ola_A[adapter_name][key].weight, a=math.sqrt(5))
+            nn.init.zeros_(self.ola_B[adapter_name][key].weight)
 
-            nn.init.kaiming_uniform_(self.ora_A[adapter_name][key].weight, a=math.sqrt(5))
-            nn.init.zeros_(self.ora_B[adapter_name][key].weight)
-
-            offset_A = (in_buget - in_dim) // (num_layers - 1)
-            offset_B = (out_buget - out_dim) // (num_layers - 1)
-
-            if adapter_name not in self.ora_indices_A:
-                self.ora_indices_A[adapter_name] = {}
-            if adapter_name not in self.ora_indices_B:
-                self.ora_indices_B[adapter_name] = {}
+            if adapter_name not in self.ola_indices_A:
+                self.ola_indices_A[adapter_name] = {}
+            if adapter_name not in self.ola_indices_B:
+                self.ola_indices_B[adapter_name] = {}
 
             for idx, layer_ids in enumerate(layer_ids):
-                ora_indices_A = list(range(idx * offset_A, idx * offset_A + in_dim))
-                ora_indices_B = list(range(idx * offset_B, idx * offset_B + out_dim))
+                if layer_ids not in self.ola_indices_A[adapter_name]:
+                    self.ola_indices_A[adapter_name][layer_ids] = {}
+                if layer_ids not in self.ola_indices_B[adapter_name]:
+                    self.ola_indices_B[adapter_name][layer_ids] = {}
 
-                if layer_ids not in self.ora_indices_A[adapter_name]:
-                    self.ora_indices_A[adapter_name][layer_ids] = {}
-                if layer_ids not in self.ora_indices_B[adapter_name]:
-                    self.ora_indices_B[adapter_name][layer_ids] = {}
+                left = max(idx * config.r - half_extra_r, 0)
+                right = min(idx * config.r + config.r + half_extra_r, r_buget)
 
-                self.ora_indices_A[adapter_name][layer_ids][key] = ora_indices_A
-                self.ora_indices_B[adapter_name][layer_ids][key] = ora_indices_B
+                self.ola_indices_A[adapter_name][layer_ids][key] = (left, right)
+                self.ola_indices_B[adapter_name][layer_ids][key] = (left, right)
 
-    def _pre_injection_hook(self, model: nn.Module, config: OraConfig, adapter_name: str) -> None:
-        self._init_ora_A_ora_B(config, adapter_name)
+        device = self.model.device
+        self.ola_A[adapter_name] = self.ola_A[adapter_name].to(device)
+        self.ola_B[adapter_name] = self.ola_B[adapter_name].to(device)
 
-    def _check_new_adapter_config(self, config: OraConfig) -> None:
+    def _pre_injection_hook(self, model: nn.Module, config: OlaConfig, adapter_name: str) -> None:
+        self._init_ola_A_ola_B(config, adapter_name)
+
+    def _check_new_adapter_config(self, config: OlaConfig) -> None:
         """
         A helper method to check the config when a new adapter is being added.
 
@@ -220,17 +219,17 @@ class OraModel(BaseTuner):
 
             if existing_config.projection_prng_key != config.projection_prng_key:
                 raise ValueError(
-                    f"Ora PRNG initialisation key must be the same for all adapters. Got {config.projection_prng_key=} but "
+                    f"Ola PRNG initialisation key must be the same for all adapters. Got {config.projection_prng_key=} but "
                     f"previous config had {existing_config.projection_prng_key}."
                 )
 
     @staticmethod
-    def _check_target_module_exists(ora_config, key):
-        return check_target_module_exists(ora_config, key)
+    def _check_target_module_exists(ola_config, key):
+        return check_target_module_exists(ola_config, key)
 
     def _create_and_replace(
         self,
-        ora_config,
+        ola_config,
         adapter_name,
         target,
         target_name,
@@ -249,13 +248,16 @@ class OraModel(BaseTuner):
         else:
             raise ValueError("Invalid target module type")
 
-        r = ora_config.r
+        r = ola_config.r
         bias = hasattr(target, "bias") and target.bias is not None
         kwargs = {
             "r": r,
-            "ora_dropout": ora_config.ora_dropout,
-            "fan_in_fan_out": ora_config.fan_in_fan_out,
-            "init_weights": ora_config.init_weights,
+            "effective_r": ola_config.effective_r,
+            "ola_use_scaling": ola_config.ola_use_scaling,
+            "ola_share_scaling": ola_config.ola_share_scaling,
+            "ola_alpha": ola_config.ola_alpha,
+            "ola_dropout": ola_config.ola_dropout,
+            "fan_in_fan_out": ola_config.fan_in_fan_out,
         }
         kwargs["bias"] = bias
 
@@ -264,17 +266,19 @@ class OraModel(BaseTuner):
                 adapter_name,
                 layer_id,
                 module_name,
-                self.ora_indices_A,
-                self.ora_indices_B,
-                self.ora_A,
-                self.ora_B,
+                self.ola_indices_A,
+                self.ola_indices_B,
+                self.ola_A,
+                self.ola_B,
                 r,
-                ora_config.ora_dropout,
-                ora_config.init_weights,
-                d_initial=ora_config.d_initial,
+                ola_config.effective_r,
+                ola_config.ola_use_scaling,
+                ola_config.ola_share_scaling,
+                ola_config.ola_alpha,
+                ola_config.ola_dropout,
             )
         else:
-            new_module = self._create_new_module(ora_config, layer_id, module_name, self.ora_indices_A, self.ora_indices_B, self.ora_A, self.ora_B, adapter_name, target, **kwargs)
+            new_module = self._create_new_module(ola_config, layer_id, module_name, self.ola_indices_A, self.ola_indices_B, self.ola_A, self.ola_B, adapter_name, target, **kwargs)
             if adapter_name not in self.active_adapter:
                 # adding an additional adapter: it is not automatically trainable
                 new_module.requires_grad_(False)
@@ -304,7 +308,7 @@ class OraModel(BaseTuner):
 
         # dispatch to correct device
         for name, module in new_module.named_modules():
-            if "ora_" in name:
+            if "ola_" in name:
                 module.to(child.weight.device)
 
     def _mark_only_adapters_as_trainable(self, model: nn.Module) -> None:
@@ -321,18 +325,15 @@ class OraModel(BaseTuner):
                 for n, p in model.named_parameters():
                     if "bias" in n:
                         p.requires_grad = True
-            elif bias == "vera_only":
+            elif bias == "ola_only":
                 for m in model.modules():
-                    if isinstance(m, OraLayer) and hasattr(m, "bias") and m.bias is not None:
+                    if isinstance(m, OlaLayer) and hasattr(m, "bias") and m.bias is not None:
                         m.bias.requires_grad = True
             else:
                 raise NotImplementedError(f"Requested bias: {bias}, is not implemented.")
 
-
     @staticmethod
-    def _create_new_module(ora_config, layer_id, module_name, ora_indices_A, ora_indices_B, ora_A, ora_B, adapter_name, target, **kwargs):
-        bias = kwargs.pop("bias", False)
-
+    def _create_new_module(ola_config, layer_id, module_name, ola_indices_A, ola_indices_B, ola_A, ola_B, adapter_name, target, **kwargs):
         if isinstance(target, BaseTunerLayer):
             target_base_layer = target.get_base_layer()
         else:
@@ -344,7 +345,7 @@ class OraModel(BaseTuner):
                     "fan_in_fan_out is set to True but the target module is `torch.nn.Linear`. "
                     "Setting fan_in_fan_out to False."
                 )
-                kwargs["fan_in_fan_out"] = ora_config.fan_in_fan_out = False
+                kwargs["fan_in_fan_out"] = ola_config.fan_in_fan_out = False
         elif isinstance(target_base_layer, Conv1D):
             kwargs["is_target_conv_1d_layer"] = True
             if not kwargs["fan_in_fan_out"]:
@@ -352,7 +353,7 @@ class OraModel(BaseTuner):
                     "fan_in_fan_out is set to False but the target module is `Conv1D`. "
                     "Setting fan_in_fan_out to True."
                 )
-                kwargs["fan_in_fan_out"] = ora_config.fan_in_fan_out = True
+                kwargs["fan_in_fan_out"] = ola_config.fan_in_fan_out = True
         else:
             raise ValueError(
                 f"Target module {target} is not supported. Currently, only the following modules are supported: "
@@ -362,12 +363,11 @@ class OraModel(BaseTuner):
             target,
             layer_id,
             module_name,
-            ora_indices_A,
-            ora_indices_B,
-            ora_A,
-            ora_B,
+            ola_indices_A,
+            ola_indices_B,
+            ola_A,
+            ola_B,
             adapter_name,
-            bias=bias,
             **kwargs,
         )
 
@@ -410,7 +410,7 @@ class OraModel(BaseTuner):
 
     def set_adapter(self, adapter_name):
         for module in self.model.modules():
-            if isinstance(module, OraLayer):
+            if isinstance(module, OlaLayer):
                 if module.merged:
                     warnings.warn("Adapter cannot be set when the model is merged. Unmerging the model first.")
                     module.unmerge()
@@ -434,8 +434,8 @@ class OraModel(BaseTuner):
         safe_merge: bool = False,
         adapter_names: Optional[list[str]] = None,
     ):
-        # we cannot use self.prefix as we want to include non-trainable ora parameters
-        key_list = [key for key, _ in self.model.named_modules() if "ora" not in key]
+        # we cannot use self.prefix as we want to include non-trainable ola parameters
+        key_list = [key for key, _ in self.model.named_modules() if "ola" not in key]
         desc = "Unloading " + ("and merging " if merge else "") + "model"
         for key in tqdm(key_list, disable=not progressbar, desc=desc):
             try:
@@ -465,12 +465,12 @@ class OraModel(BaseTuner):
             raise ValueError(f"Adapter {adapter_name} does not exist")
         del self.peft_config[adapter_name]
 
-        # we cannot use self.prefix as we want to include non-trainable ora parameters
-        key_list = [key for key, _ in self.model.named_modules() if "ora" not in key]
+        # we cannot use self.prefix as we want to include non-trainable ola parameters
+        key_list = [key for key, _ in self.model.named_modules() if "ola" not in key]
         new_adapter = None
         for key in key_list:
             _, target, _ = _get_submodules(self.model, key)
-            if isinstance(target, OraLayer):
+            if isinstance(target, OlaLayer):
                 target.delete_adapter(adapter_name)
                 if new_adapter is None:
                     new_adapter = target.active_adapter[:]
@@ -481,7 +481,7 @@ class OraModel(BaseTuner):
         self, progressbar: bool = False, safe_merge: bool = False, adapter_names: Optional[list[str]] = None
     ):
         r"""
-        This method merges the Ora layers into the base model. This is needed if someone wants to use the base model
+        This method merges the Ola layers into the base model. This is needed if someone wants to use the base model
         as a standalone model.
 
         Args:
@@ -501,7 +501,7 @@ class OraModel(BaseTuner):
         >>> from peft import PeftModel
 
         >>> base_model = AutoModelForCausalLM.from_pretrained("tiiuae/falcon-40b")
-        >>> peft_model_id = "smangrul/falcon-40B-int4-peft-lora-sfttrainer-sample"
+        >>> peft_model_id = "smangrul/falcon-40B-int4-peft-lola-sfttrainer-sample"
         >>> model = PeftModel.from_pretrained(base_model, peft_model_id)
         >>> merged_model = model.merge_and_unload()
         ```
@@ -512,7 +512,7 @@ class OraModel(BaseTuner):
 
     def unload(self):
         """
-        Gets back the base model by removing all the Ora modules without merging. This gives back the original base
+        Gets back the base model by removing all the Ola modules without merging. This gives back the original base
         model.
         """
         return self._unload_and_optionally_merge(merge=False)

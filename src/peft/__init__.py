@@ -83,6 +83,8 @@ from .tuners import (
     VeraModel,
     OraConfig,
     OraModel,
+    OlaConfig,
+    OlaModel,
 )
 from .utils import (
     TRANSFORMERS_MODELS_TO_PREFIX_TUNING_POSTPROCESS_MAPPING,

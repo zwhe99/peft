@@ -57,7 +57,9 @@ from .tuners import (
     VeraConfig,
     VeraModel,
     OraConfig,
-    OraModel
+    OraModel,
+    OlaConfig,
+    OlaModel
 )
 from .tuners.tuners_utils import BaseTuner as _BaseTuner
 from .utils import _prepare_prompt_learning_config
@@ -92,7 +94,8 @@ PEFT_TYPE_TO_CONFIG_MAPPING: dict[str, type[PeftConfig]] = {
     "POLY": PolyConfig,
     "LN_TUNING": LNTuningConfig,
     "VERA": VeraConfig,
-    "ORA": OraConfig
+    "ORA": OraConfig,
+    "OLA": OlaConfig,
 }
 
 PEFT_TYPE_TO_TUNER_MAPPING: dict[str, type[_BaseTuner]] = {
@@ -106,7 +109,8 @@ PEFT_TYPE_TO_TUNER_MAPPING: dict[str, type[_BaseTuner]] = {
     "POLY": PolyModel,
     "LN_TUNING": LNTuningModel,
     "VERA": VeraModel,
-    "ORA": OraModel
+    "ORA": OraModel,
+    "OLA": OlaModel,
 }
 
 

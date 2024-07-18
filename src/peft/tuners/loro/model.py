@@ -36,38 +36,38 @@ from peft.utils import (
 )
 
 from ..tuners_utils import _maybe_include_all_linear_layers
-from .config import OlaConfig
-from .layer import Linear, OlaLayer
+from .config import LoroConfig
+from .layer import Linear, LoroLayer
 
-class OlaModel(BaseTuner):
+class LoroModel(BaseTuner):
     """
-    Creates Vector-based Random Matrix Adaptation (Ola) model from a pretrained transformers model.
+    Creates Vector-based Random Matrix Adaptation (Loro) model from a pretrained transformers model.
 
     Args:
         model ([`~transformers.PreTrainedModel`]): The model to be adapted.
-        config ([`OlaConfig`]): The configuration of the Ola model.
+        config ([`LoroConfig`]): The configuration of the Loro model.
         adapter_name (`str`): The name of the adapter, defaults to `"default"`.
 
     Returns:
-        `torch.nn.Module`: The Ola model.
+        `torch.nn.Module`: The Loro model.
 
     Example:
 
         ```py
         >>> from transformers import AutoModelForCausalLM
-        >>> from peft import OlaConfig, get_peft_model
+        >>> from peft import LoroConfig, get_peft_model
 
         >>> base_model = AutoModelForCausalLM.from_pretrained("facebook/opt-125m")
-        >>> config = OlaConfig(r=128)
+        >>> config = LoroConfig(r=128)
         >>> model = get_peft_model(base_model, config)
         ```
 
     **Attributes**:
         - **model** ([`~transformers.PreTrainedModel`]) -- The model to be adapted.
-        - **peft_config** ([`OlaConfig`]): The configuration of the Ola model.
+        - **peft_config** ([`LoroConfig`]): The configuration of the Loro model.
     """
 
-    prefix: str = "ola_"
+    prefix: str = "loro_"
 
     def __init__(self, model, config, adapter_name) -> None:
         super().__init__(model, config, adapter_name)
@@ -87,7 +87,7 @@ class OlaModel(BaseTuner):
                 - "num_layers": The number of layers for the module type.
 
         Raises:
-            ValueError: If no layers types compatible with Ola were found.
+            ValueError: If no layers types compatible with Loro were found.
             AssertionError: If there is a shape mismatch for any module type across layers.
         """
         model_config = getattr(self.model, "config", {"model_type": "custom"})
@@ -112,7 +112,7 @@ class OlaModel(BaseTuner):
             module2shape[key] = module_shape
 
         if not module2shape:
-            msg = "No layers types compatible with Ola were found. Please check `peft_config.target_modules`."
+            msg = "No layers types compatible with Loro were found. Please check `peft_config.target_modules`."
             raise ValueError(msg)
 
         # Group modules across layers
@@ -142,69 +142,40 @@ class OlaModel(BaseTuner):
 
         return grouped_dict
 
-    def _init_ola_A_ola_B(self, config: OlaConfig, adapter_name: str) -> None:
-        self.ola_A = nn.ModuleDict({})
-        self.ola_B = nn.ModuleDict({})
-        self.ola_indices_A = {}
-        self.ola_indices_B = {}
+    def _init_loro_A_loro_B(self, config: LoroConfig, adapter_name: str) -> None:
+        self.loro_shared_A = nn.ModuleDict({})
+        self.loro_shared_B = nn.ModuleDict({})
 
         module2shape = self._scan_module(config)
+        self.module2shape = module2shape
         for key, value in module2shape.items():
             in_dim = value["shape"][1]
             out_dim = value["shape"][0]
             num_layers = value["num_layers"]
             layer_ids = value["layer_ids"]
 
-            r_buget = config.r * num_layers
-            extra_r = config.effective_r - config.r
-            assert extra_r % 2 == 0
-            half_extra_r = extra_r // 2
+            shared_r = config.loro_left_rank * num_layers
 
-            if adapter_name not in self.ola_A:
-                self.ola_A[adapter_name] = nn.ModuleDict({})
+            if adapter_name not in self.loro_shared_A:
+                self.loro_shared_A[adapter_name] = nn.ModuleDict({})
 
-            if adapter_name not in self.ola_B:
-                self.ola_B[adapter_name] = nn.ModuleDict({})
+            if adapter_name not in self.loro_shared_B:
+                self.loro_shared_B[adapter_name] = nn.ModuleDict({})
 
-            self.ola_A[adapter_name][key] = nn.Linear(in_dim, r_buget, bias=False)
-            self.ola_B[adapter_name][key] = nn.Linear(r_buget, out_dim, bias=False)
+            self.loro_shared_A[adapter_name][key] = nn.Linear(in_dim, shared_r, bias=False)
+            self.loro_shared_B[adapter_name][key] = nn.Linear(shared_r, out_dim, bias=False)
 
-            nn.init.kaiming_uniform_(self.ola_A[adapter_name][key].weight, a=math.sqrt(5))
-            nn.init.zeros_(self.ola_B[adapter_name][key].weight)
-
-            if adapter_name not in self.ola_indices_A:
-                self.ola_indices_A[adapter_name] = {}
-            if adapter_name not in self.ola_indices_B:
-                self.ola_indices_B[adapter_name] = {}
-
-            for idx, layer_ids in enumerate(layer_ids):
-                if layer_ids not in self.ola_indices_A[adapter_name]:
-                    self.ola_indices_A[adapter_name][layer_ids] = {}
-                if layer_ids not in self.ola_indices_B[adapter_name]:
-                    self.ola_indices_B[adapter_name][layer_ids] = {}
-
-                if not config.ola_first_half:
-                    left = max(idx * config.r - half_extra_r, 0)
-                    right = min(idx * config.r + config.r + half_extra_r, r_buget)
-                else:
-                    if idx < num_layers // 2:
-                        left = 0
-                        right = r_buget // 2
-                    else:
-                        left = idx * config.r
-                        right = idx * config.r + config.r
-
-                self.ola_indices_A[adapter_name][layer_ids][key] = (left, right)
-                self.ola_indices_B[adapter_name][layer_ids][key] = (left, right)
+            nn.init.kaiming_uniform_(self.loro_shared_A[adapter_name][key].weight, a=math.sqrt(5))
+            nn.init.zeros_(self.loro_shared_B[adapter_name][key].weight)
 
         device = self.model.device
-        self.ola_A[adapter_name] = self.ola_A[adapter_name].to(device)
-        self.ola_B[adapter_name] = self.ola_B[adapter_name].to(device)
+        self.loro_shared_A[adapter_name] = self.loro_shared_A[adapter_name].to(device)
+        self.loro_shared_B[adapter_name] = self.loro_shared_B[adapter_name].to(device)
 
-    def _pre_injection_hook(self, model: nn.Module, config: OlaConfig, adapter_name: str) -> None:
-        self._init_ola_A_ola_B(config, adapter_name)
+    def _pre_injection_hook(self, model: nn.Module, config: LoroConfig, adapter_name: str) -> None:
+        self._init_loro_A_loro_B(config, adapter_name)
 
-    def _check_new_adapter_config(self, config: OlaConfig) -> None:
+    def _check_new_adapter_config(self, config: LoroConfig) -> None:
         """
         A helper method to check the config when a new adapter is being added.
 
@@ -227,17 +198,17 @@ class OlaModel(BaseTuner):
 
             if existing_config.projection_prng_key != config.projection_prng_key:
                 raise ValueError(
-                    f"Ola PRNG initialisation key must be the same for all adapters. Got {config.projection_prng_key=} but "
+                    f"Loro PRNG initialisation key must be the same for all adapters. Got {config.projection_prng_key=} but "
                     f"previous config had {existing_config.projection_prng_key}."
                 )
 
     @staticmethod
-    def _check_target_module_exists(ola_config, key):
-        return check_target_module_exists(ola_config, key)
+    def _check_target_module_exists(loro_config, key):
+        return check_target_module_exists(loro_config, key)
 
     def _create_and_replace(
         self,
-        ola_config,
+        loro_config,
         adapter_name,
         target,
         target_name,
@@ -255,38 +226,40 @@ class OlaModel(BaseTuner):
             module_name = match.group(2).replace('.', '__')
         else:
             raise ValueError("Invalid target module type")
+        num_layers = self.module2shape[module_name]["num_layers"]
 
-        r = ola_config.r
+        r = loro_config.r
         bias = hasattr(target, "bias") and target.bias is not None
         kwargs = {
             "r": r,
-            "effective_r": ola_config.effective_r,
-            "ola_use_scaling": ola_config.ola_use_scaling,
-            "ola_share_scaling": ola_config.ola_share_scaling,
-            "ola_alpha": ola_config.ola_alpha,
-            "ola_dropout": ola_config.ola_dropout,
-            "fan_in_fan_out": ola_config.fan_in_fan_out,
+            "effective_r": (loro_config.r - loro_config.loro_left_rank) + num_layers * loro_config.loro_left_rank,
+            "loro_left_rank": loro_config.loro_left_rank,
+            "loro_mixing_init": loro_config.loro_mixing_init,
+            "loro_use_scaling": loro_config.loro_use_scaling,
+            "loro_scaling_type": loro_config.loro_scaling_type,
+            "loro_alpha": loro_config.loro_alpha,
+            "loro_dropout": loro_config.loro_dropout,
+            "fan_in_fan_out": loro_config.fan_in_fan_out,
         }
         kwargs["bias"] = bias
 
         if isinstance(target, Linear):
             target.update_layer(
                 adapter_name,
-                layer_id,
                 module_name,
-                self.ola_indices_A,
-                self.ola_indices_B,
-                self.ola_A,
-                self.ola_B,
+                self.loro_shared_A,
+                self.loro_shared_B,
                 r,
-                ola_config.effective_r,
-                ola_config.ola_use_scaling,
-                ola_config.ola_share_scaling,
-                ola_config.ola_alpha,
-                ola_config.ola_dropout,
+                loro_config.effective_r,
+                loro_config.loro_left_rank,
+                loro_config.loro_mixing_init,
+                loro_config.loro_use_scaling,
+                loro_config.loro_scaling_type,
+                loro_config.loro_alpha,
+                loro_config.loro_dropout,
             )
         else:
-            new_module = self._create_new_module(ola_config, layer_id, module_name, self.ola_indices_A, self.ola_indices_B, self.ola_A, self.ola_B, adapter_name, target, **kwargs)
+            new_module = self._create_new_module(loro_config, adapter_name, target, module_name, self.loro_shared_A, self.loro_shared_B, **kwargs)
             if adapter_name not in self.active_adapter:
                 # adding an additional adapter: it is not automatically trainable
                 new_module.requires_grad_(False)
@@ -316,7 +289,7 @@ class OlaModel(BaseTuner):
 
         # dispatch to correct device
         for name, module in new_module.named_modules():
-            if "ola_" in name:
+            if "loro_" in name:
                 module.to(child.weight.device)
 
     def _mark_only_adapters_as_trainable(self, model: nn.Module) -> None:
@@ -333,15 +306,15 @@ class OlaModel(BaseTuner):
                 for n, p in model.named_parameters():
                     if "bias" in n:
                         p.requires_grad = True
-            elif bias == "ola_only":
+            elif bias == "loro_only":
                 for m in model.modules():
-                    if isinstance(m, OlaLayer) and hasattr(m, "bias") and m.bias is not None:
+                    if isinstance(m, LoroLayer) and hasattr(m, "bias") and m.bias is not None:
                         m.bias.requires_grad = True
             else:
                 raise NotImplementedError(f"Requested bias: {bias}, is not implemented.")
 
     @staticmethod
-    def _create_new_module(ola_config, layer_id, module_name, ola_indices_A, ola_indices_B, ola_A, ola_B, adapter_name, target, **kwargs):
+    def _create_new_module(loro_config, adapter_name, target, module_name, loro_shared_A, loro_shared_B, **kwargs):
         if isinstance(target, BaseTunerLayer):
             target_base_layer = target.get_base_layer()
         else:
@@ -353,7 +326,7 @@ class OlaModel(BaseTuner):
                     "fan_in_fan_out is set to True but the target module is `torch.nn.Linear`. "
                     "Setting fan_in_fan_out to False."
                 )
-                kwargs["fan_in_fan_out"] = ola_config.fan_in_fan_out = False
+                kwargs["fan_in_fan_out"] = loro_config.fan_in_fan_out = False
         elif isinstance(target_base_layer, Conv1D):
             kwargs["is_target_conv_1d_layer"] = True
             if not kwargs["fan_in_fan_out"]:
@@ -361,7 +334,7 @@ class OlaModel(BaseTuner):
                     "fan_in_fan_out is set to False but the target module is `Conv1D`. "
                     "Setting fan_in_fan_out to True."
                 )
-                kwargs["fan_in_fan_out"] = ola_config.fan_in_fan_out = True
+                kwargs["fan_in_fan_out"] = loro_config.fan_in_fan_out = True
         else:
             raise ValueError(
                 f"Target module {target} is not supported. Currently, only the following modules are supported: "
@@ -369,13 +342,10 @@ class OlaModel(BaseTuner):
             )
         new_module = Linear(
             target,
-            layer_id,
-            module_name,
-            ola_indices_A,
-            ola_indices_B,
-            ola_A,
-            ola_B,
             adapter_name,
+            module_name,
+            loro_shared_A,
+            loro_shared_B,
             **kwargs,
         )
 
@@ -418,7 +388,7 @@ class OlaModel(BaseTuner):
 
     def set_adapter(self, adapter_name):
         for module in self.model.modules():
-            if isinstance(module, OlaLayer):
+            if isinstance(module, LoroLayer):
                 if module.merged:
                     warnings.warn("Adapter cannot be set when the model is merged. Unmerging the model first.")
                     module.unmerge()
@@ -442,8 +412,8 @@ class OlaModel(BaseTuner):
         safe_merge: bool = False,
         adapter_names: Optional[list[str]] = None,
     ):
-        # we cannot use self.prefix as we want to include non-trainable ola parameters
-        key_list = [key for key, _ in self.model.named_modules() if "ola" not in key]
+        # we cannot use self.prefix as we want to include non-trainable loro parameters
+        key_list = [key for key, _ in self.model.named_modules() if "loro" not in key]
         desc = "Unloading " + ("and merging " if merge else "") + "model"
         for key in tqdm(key_list, disable=not progressbar, desc=desc):
             try:
@@ -473,12 +443,12 @@ class OlaModel(BaseTuner):
             raise ValueError(f"Adapter {adapter_name} does not exist")
         del self.peft_config[adapter_name]
 
-        # we cannot use self.prefix as we want to include non-trainable ola parameters
-        key_list = [key for key, _ in self.model.named_modules() if "ola" not in key]
+        # we cannot use self.prefix as we want to include non-trainable loro parameters
+        key_list = [key for key, _ in self.model.named_modules() if "loro" not in key]
         new_adapter = None
         for key in key_list:
             _, target, _ = _get_submodules(self.model, key)
-            if isinstance(target, OlaLayer):
+            if isinstance(target, LoroLayer):
                 target.delete_adapter(adapter_name)
                 if new_adapter is None:
                     new_adapter = target.active_adapter[:]
@@ -489,7 +459,7 @@ class OlaModel(BaseTuner):
         self, progressbar: bool = False, safe_merge: bool = False, adapter_names: Optional[list[str]] = None
     ):
         r"""
-        This method merges the Ola layers into the base model. This is needed if someone wants to use the base model
+        This method merges the Loro layers into the base model. This is needed if someone wants to use the base model
         as a standalone model.
 
         Args:
@@ -509,7 +479,7 @@ class OlaModel(BaseTuner):
         >>> from peft import PeftModel
 
         >>> base_model = AutoModelForCausalLM.from_pretrained("tiiuae/falcon-40b")
-        >>> peft_model_id = "smangrul/falcon-40B-int4-peft-lola-sfttrainer-sample"
+        >>> peft_model_id = "smangrul/falcon-40B-int4-peft-lloro-sfttrainer-sample"
         >>> model = PeftModel.from_pretrained(base_model, peft_model_id)
         >>> merged_model = model.merge_and_unload()
         ```
@@ -520,7 +490,7 @@ class OlaModel(BaseTuner):
 
     def unload(self):
         """
-        Gets back the base model by removing all the Ola modules without merging. This gives back the original base
+        Gets back the base model by removing all the Loro modules without merging. This gives back the original base
         model.
         """
         return self._unload_and_optionally_merge(merge=False)

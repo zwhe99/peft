@@ -57,6 +57,7 @@ class PeftType(str, enum.Enum):
     VERA = "VERA"
     ORA = "ORA"
     OLA = "OLA"
+    LORO = "LORO"
 
 
 class TaskType(str, enum.Enum):

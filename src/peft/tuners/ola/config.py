@@ -75,6 +75,7 @@ class OlaConfig(PeftConfig):
     )
     ola_use_scaling: bool = field(default=True, metadata={"help": "Use scaling in Ola"})
     ola_share_scaling: bool = field(default=False, metadata={"help": "Share scaling factor in Ola"})
+    ola_first_half: bool = field(default=False, metadata={"help": "Apply Ola to the first half of the layer"})
     ola_alpha: int = field(default=8, metadata={"help": "Ola alpha"})
     ola_dropout: float = field(default=0.0, metadata={"help": "Ola dropout"})
     fan_in_fan_out: bool = field(

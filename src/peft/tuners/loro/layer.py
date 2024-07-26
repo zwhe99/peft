@@ -151,6 +151,14 @@ class LoroLayer(BaseTunerLayer):
                 self.scaling[adapter_name] = loro_alpha / effective_r
             elif loro_scaling_type == "r":
                 self.scaling[adapter_name] = loro_alpha / r
+            elif loro_scaling_type == "si":
+                # private part
+                nn.init.constant_(self.loro_mixing[adapter_name].weight[:r - loro_left_rank], loro_alpha / (r - loro_left_rank))
+
+                # shared part
+                nn.init.constant_(self.loro_mixing[adapter_name].weight[r - loro_left_rank:], loro_alpha / (effective_r - (r - loro_left_rank)))
+
+                self.scaling[adapter_name] = 1.0
             else:
                 raise ValueError(f"Unknown scaling type: {loro_scaling_type}")
         else:

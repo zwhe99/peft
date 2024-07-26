@@ -36,3 +36,4 @@ from .vera import VeraConfig, VeraModel
 from .ora import OraConfig, OraModel
 from .ola import OlaConfig, OlaModel
 from .loro import LoroConfig, LoroModel
+from .lxro import LxroConfig, LxroModel

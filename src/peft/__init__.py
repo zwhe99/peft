@@ -87,6 +87,8 @@ from .tuners import (
     OlaModel,
     LoroConfig,
     LoroModel,
+    LxroConfig,
+    LxroModel,
 )
 from .utils import (
     TRANSFORMERS_MODELS_TO_PREFIX_TUNING_POSTPROCESS_MAPPING,

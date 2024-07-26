@@ -57,7 +57,8 @@ from .tuners import (
     VeraModel,
     OraModel,
     OlaModel,
-    LoroModel
+    LoroModel,
+    LxroModel
 )
 from .tuners.tuners_utils import BaseTuner, BaseTunerLayer
 from .utils import (
@@ -97,6 +98,7 @@ PEFT_TYPE_TO_MODEL_MAPPING = {
     PeftType.ORA: OraModel,
     PeftType.OLA: OlaModel,
     PeftType.LORO: LoroModel,
+    PeftType.LXRO: LxroModel,
 }
 
 

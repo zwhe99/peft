@@ -182,6 +182,8 @@ def get_peft_model_state_dict(
         to_return = {k: state_dict[k] for k in state_dict if "ola_" in k and "layers" not in k}
     elif config.peft_type == PeftType.LORO:
         to_return = {k: state_dict[k] for k in state_dict if ("loro_" in k) and not ("layers" in k and "shared" in k)} # we don't want to save shared para within a layer
+    elif config.peft_type == PeftType.LXRO:
+        to_return = {k: state_dict[k] for k in state_dict if ("lxro_" in k) and not ("layers" in k and "shared" in k)} # we don't want to save shared para within a layer
     else:
         raise ValueError(f"Unknown PEFT type passed: {config.peft_type}")
 
@@ -322,6 +324,7 @@ def set_peft_model_state_dict(
         PeftType.ORA,
         PeftType.OLA,
         PeftType.LORO,
+        PeftType.LXRO,
     ):
         peft_model_state_dict = {}
         parameter_prefix = {
@@ -338,6 +341,7 @@ def set_peft_model_state_dict(
             PeftType.ORA: "ora_",
             PeftType.OLA: "ola_",
             PeftType.LORO: "loro_",
+            PeftType.LXRO: "lxro_",
         }[config.peft_type]
         for k, v in state_dict.items():
             if parameter_prefix in k:

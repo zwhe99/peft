@@ -17,6 +17,7 @@ from typing import List, Optional
 import math
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from transformers.pytorch_utils import Conv1D
 
 from peft.tuners.tuners_utils import BaseTunerLayer
@@ -232,12 +233,15 @@ class Linear(nn.Linear, LoroLayer):
                 effective_r = self.effective_r[active_adapter]
 
                 x = x.to(loro_A.weight.dtype)
-                x = dropout(x)
-                x = torch.concat([loro_A(x), loro_shared_A(x)], dim=-1)
-                x = loro_mixing(x)
-                x_private, x_shared = torch.split(x, [r - llr, effective_r - (r - llr)], dim=-1)
-
-                result = result + (loro_B(x_private) + loro_shared_B(x_shared)) * scaling
+                result += F.linear(
+                    loro_mixing(
+                        F.linear(
+                            dropout(x),
+                            torch.cat([loro_A.weight, loro_shared_A.weight], dim=0),
+                        )
+                    ),
+                    torch.cat([loro_B.weight, loro_shared_B.weight], dim=1)
+                ) * scaling
 
             result = result.to(torch_result_dtype)
 

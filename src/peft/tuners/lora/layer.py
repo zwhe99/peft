@@ -141,6 +141,8 @@ class LoraLayer(BaseTunerLayer):
                 self.pissa_init(adapter_name, init_lora_weights)
             elif init_lora_weights == "loftq":
                 self.loftq_init(adapter_name)
+            elif init_lora_weights == "symm":
+                self.symm_init(adapter_name)
             elif init_lora_weights:
                 self.reset_lora_parameters(adapter_name, init_lora_weights)
 
@@ -249,6 +251,39 @@ class LoraLayer(BaseTunerLayer):
         scaling = self.scaling[adapter_name]
         dora_layer.update_layer(base_layer=self.get_base_layer(), lora_A=lora_A, lora_B=lora_B, scaling=scaling)
         self.lora_magnitude_vector[adapter_name] = dora_layer
+
+    def symm_init(self, adapter_name):
+        if adapter_name in self.lora_A.keys():
+            r = self.lora_A[adapter_name].weight.shape[0]
+            db = self.lora_B[adapter_name].weight.shape[0]
+            da = self.lora_A[adapter_name].weight.shape[1]
+            half_r = r // 2
+
+            # init half of the weights
+            nn.init.kaiming_uniform_(self.lora_A[adapter_name].weight[half_r:, :], a=math.sqrt(5))
+            nn.init.kaiming_uniform_(self.lora_B[adapter_name].weight[:, half_r:], a=math.sqrt(5))
+
+            with torch.no_grad():
+                # copy the weights to the other half
+                self.lora_A[adapter_name].weight[:half_r, :] = self.lora_A[adapter_name].weight[half_r:, :].clone()
+                self.lora_B[adapter_name].weight[:, :half_r] = self.lora_B[adapter_name].weight[:, half_r:].clone()
+
+                # filp the sign of the other half
+                half_half_r = half_r // 2
+                all_indices = torch.arange(half_r)
+                lora_A_flip_indices = all_indices[half_half_r:]
+                lora_B_flip_indices = all_indices[: half_half_r]
+                self.lora_A[adapter_name].weight[lora_A_flip_indices, :] *= -1
+                self.lora_B[adapter_name].weight[:, lora_B_flip_indices] *= -1
+
+                # should be zero
+                assert torch.allclose(
+                    self.lora_B[adapter_name].weight @ self.lora_A[adapter_name].weight,
+                    torch.zeros(db, da, device=self.lora_A[adapter_name].weight.device, dtype=self.lora_A[adapter_name].weight.dtype),
+                ), f"Symmetric initialization failed\n{self.lora_B[adapter_name].weight @ self.lora_A[adapter_name].weight}"
+
+        if adapter_name in self.lora_embedding_A.keys():
+            raise NotImplementedError("symm_init for embedding layer is not implemented yet")
 
     def _cache_store(self, key: str, value: Any) -> None:
         self._caches[key] = value

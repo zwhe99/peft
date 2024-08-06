@@ -163,7 +163,7 @@ class LoraConfig(PeftConfig):
             "the final layer `classifier/score` are randomly initialized and as such need to be trainable and saved."
         },
     )
-    init_lora_weights: bool | Literal["gaussian", "pissa", "pissa_niter_[number of iters]", "loftq"] = field(
+    init_lora_weights: bool | Literal["gaussian", "pissa", "pissa_niter_[number of iters]", "loftq", "symm"] = field(
         default=True,
         metadata={
             "help": (

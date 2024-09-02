@@ -112,7 +112,7 @@ class LoroModel(BaseTuner):
                     continue
             else:
                 if isinstance(module, (nn.Linear, Conv1D)):
-                    module_shape = getattr(value, "ds_shape")
+                    module_shape = getattr(module, "ds_shape")
                     if isinstance(module, Conv1D):
                         module_shape = module_shape[::-1]
                 else:

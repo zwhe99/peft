@@ -27,6 +27,7 @@ import torch.nn as nn
 from torch.nn.init import _calculate_correct_fan
 from tqdm import tqdm
 from transformers.pytorch_utils import Conv1D
+from transformers.integrations import is_deepspeed_zero3_enabled
 
 from peft.tuners.tuners_utils import BaseTuner, BaseTunerLayer, check_target_module_exists
 from peft.utils import (
@@ -101,13 +102,21 @@ class LoroModel(BaseTuner):
         for key, module in self.model.named_modules():
             if not self._check_target_module_exists(peft_config, key):
                 continue
-
-            if isinstance(module, (nn.Linear, Conv1D)):
-                module_shape = tuple(module.weight.shape)
-                if isinstance(module, Conv1D):
-                    module_shape = module_shape[::-1]
+            
+            if not is_deepspeed_zero3_enabled():
+                if isinstance(module, (nn.Linear, Conv1D)):
+                    module_shape = tuple(module.weight.shape)
+                    if isinstance(module, Conv1D):
+                        module_shape = module_shape[::-1]
+                else:
+                    continue
             else:
-                continue
+                if isinstance(module, (nn.Linear, Conv1D)):
+                    module_shape = getattr(value, "ds_shape")
+                    if isinstance(module, Conv1D):
+                        module_shape = module_shape[::-1]
+                else:
+                    continue
 
             module2shape[key] = module_shape
 

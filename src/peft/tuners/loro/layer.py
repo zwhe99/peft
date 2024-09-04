@@ -234,9 +234,15 @@ class Linear(nn.Linear, LoroLayer):
                     continue
                 loro_A = self.loro_A[active_adapter]
                 loro_B = self.loro_B[active_adapter]
+                loro_mixing = self.loro_mixing[active_adapter]
+
+                if not loro_A.weight.requires_grad:
+                    # there might be a more elegant way to do this
+                    self.loro_shared_A[active_adapter][self.module_name] = self.loro_shared_A[active_adapter][self.module_name].to(loro_A.weight.device)
+                    self.loro_shared_B[active_adapter][self.module_name] = self.loro_shared_B[active_adapter][self.module_name].to(loro_B.weight.device)
+
                 loro_shared_A = self.loro_shared_A[active_adapter][self.module_name]
                 loro_shared_B = self.loro_shared_B[active_adapter][self.module_name]
-                loro_mixing = self.loro_mixing[active_adapter]
 
                 dropout = self.loro_dropout[active_adapter]
                 scaling = self.scaling[active_adapter]

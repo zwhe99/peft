@@ -162,7 +162,8 @@ class LoroLayer(BaseTunerLayer):
                 self.scaling[adapter_name] = 1.0
             elif loro_scaling_type == "hsi":
                 # private part
-                nn.init.constant_(self.loro_mixing[adapter_name].weight[:r - loro_left_rank], (0.5 * loro_alpha) / (r - loro_left_rank))
+                if r - loro_left_rank > 0:
+                    nn.init.constant_(self.loro_mixing[adapter_name].weight[:r - loro_left_rank], (0.5 * loro_alpha) / (r - loro_left_rank))
 
                 # shared part
                 nn.init.constant_(self.loro_mixing[adapter_name].weight[r - loro_left_rank:], (0.5 * loro_alpha) / (effective_r - (r - loro_left_rank)))

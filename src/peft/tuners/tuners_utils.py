@@ -168,6 +168,23 @@ class BaseTuner(nn.Module, ABC):
         # Copy the peft_config in the injected model.
         self.model.peft_config = self.peft_config
 
+    @staticmethod
+    def get_model_config(model: nn.Module) -> dict:
+        """
+        This method gets the config from a model in dictionary form. If model has not attribute config, then this
+        method returns a default config.
+
+        Args:
+            model (`nn.Module`):
+                Model to get the config from.
+            default (`dict|None`, *optional*)::
+                What to return if model does not have a config attribute.
+        """
+        model_config = getattr(model, "config", DUMMY_MODEL_CONFIG)
+        if hasattr(model_config, "to_dict"):
+            model_config = model_config.to_dict()
+        return model_config
+
     @property
     def active_adapters(self) -> list[str]:
         if isinstance(self.active_adapter, str):

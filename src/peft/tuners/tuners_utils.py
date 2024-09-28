@@ -30,6 +30,7 @@ from transformers import PreTrainedModel
 from transformers.pytorch_utils import Conv1D
 
 from peft.utils import INCLUDE_LINEAR_LAYERS_SHORTHAND
+from peft.utils.constants import DUMMY_MODEL_CONFIG
 
 from ..config import PeftConfig
 from ..utils import ModulesToSaveWrapper, _get_submodules

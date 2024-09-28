@@ -34,7 +34,7 @@ from peft.utils.constants import DUMMY_MODEL_CONFIG
 
 from ..config import PeftConfig
 from ..utils import ModulesToSaveWrapper, _get_submodules
-
+from ._buffer_dict import BufferDict
 
 logger = logging.getLogger(__name__)
 
@@ -691,7 +691,6 @@ class BaseTunerLayer(ABC):
         """
         Move the adapter of the given name to the device of the base layer.
         """
-        from peft.tuners.vera.buffer_dict import BufferDict
 
         if device is None:
             # check weight and qweight (for GPTQ)

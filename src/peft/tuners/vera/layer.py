@@ -281,6 +281,8 @@ class Linear(nn.Linear, VeraLayer):
                 # During the forward pass, required submatrices are sliced out from the shared vera_A and vera_B.
                 sliced_A = vera_A[:, : self.in_features]
                 sliced_B = vera_B[: self.out_features, :]
+                lambda_d = lambda_d.to(sliced_A.dtype)
+                lambda_b = lambda_b.to(sliced_A.dtype)
 
                 dropout = self.vera_dropout[active_adapter]
                 x = x.to(lambda_d.dtype)

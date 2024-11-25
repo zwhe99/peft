@@ -207,6 +207,8 @@ def get_peft_model_state_dict(
         to_return["base_model.vblora_vector_bank." + adapter_name] = state_dict[
             "base_model.vblora_vector_bank." + adapter_name
         ]
+    elif config.peft_type == PeftType.RASA:
+        to_return = {k: state_dict[k] for k in state_dict if ("rasa_" in k) and not ("layers" in k and "shared" in k)} # we don't want to save shared para within a layer
     else:
         raise ValueError(f"Unknown PEFT type passed: {config.peft_type}")
 
@@ -355,6 +357,7 @@ def set_peft_model_state_dict(
         PeftType.FOURIERFT,
         PeftType.HRA,
         PeftType.VBLORA,
+        PeftType.RASA,
     ):
         peft_model_state_dict = {}
         parameter_prefix = {
@@ -371,6 +374,7 @@ def set_peft_model_state_dict(
             PeftType.FOURIERFT: "fourierft_",
             PeftType.HRA: "hra_",
             PeftType.VBLORA: "vblora_",
+            PeftType.RASA: "rasa_",
         }[config.peft_type]
         if config.peft_type == PeftType.VBLORA and config.save_only_topk_weights:
             num_vectors, _ = model.vblora_vector_bank[adapter_name].shape

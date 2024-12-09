@@ -52,6 +52,7 @@ class RasaLayer(BaseTunerLayer):
         self.rasa_alpha = {}
         self.scaling = {}
         self.rasa_dropout = nn.ModuleDict({})
+        self.rasa_d_init = {}
         self.rasa_private_A = nn.ModuleDict({})
         self.rasa_private_B = nn.ModuleDict({})
         self.rasa_private_D = nn.ModuleDict({})
@@ -92,7 +93,7 @@ class RasaLayer(BaseTunerLayer):
         self.out_features = out_features
 
     def update_layer(
-        self, adapter_name, module_name, rasa_shared_A, rasa_shared_B, r, effective_r, rasa_k, rasa_alpha, rasa_dropout
+        self, adapter_name, module_name, rasa_shared_A, rasa_shared_B, r, effective_r, rasa_k, rasa_alpha, rasa_dropout, rasa_d_init
     ):
         # This code works for linear layers, override for other layer types
         if r <= 0:
@@ -111,6 +112,8 @@ class RasaLayer(BaseTunerLayer):
             rasa_dropout_layer = nn.Identity()
 
         self.rasa_dropout.update(nn.ModuleDict({adapter_name: rasa_dropout_layer}))
+        self.rasa_d_init[adapter_name] = rasa_d_init
+
         # Actual trainable parameters
         self.rasa_private_A[adapter_name] = nn.Linear(self.in_features, r - rasa_k, bias=False)
         self.rasa_private_B[adapter_name] = nn.Linear(r - rasa_k, self.out_features, bias=False)
@@ -136,8 +139,13 @@ class RasaLayer(BaseTunerLayer):
             effective_r = self.effective_r[adapter_name]
             rasa_k = self.rasa_k[adapter_name]
             alpha = self.rasa_alpha[adapter_name]
-            nn.init.constant_(self.rasa_private_D[adapter_name].weight[:r - rasa_k], (0.5 * alpha) / (r - rasa_k))
-            nn.init.constant_(self.rasa_private_D[adapter_name].weight[r - rasa_k:], (0.5 * alpha) / (effective_r - (r - rasa_k)))
+            if self.rasa_d_init[adapter_name] == "default":
+                nn.init.constant_(self.rasa_private_D[adapter_name].weight[:r - rasa_k], (0.5 * alpha) / (r - rasa_k))
+                nn.init.constant_(self.rasa_private_D[adapter_name].weight[r - rasa_k:], (0.5 * alpha) / (effective_r - (r - rasa_k)))
+            elif self.rasa_d_init[adapter_name] == "keep_scale":
+                nn.init.constant_(self.rasa_private_D[adapter_name].weight, alpha / r)
+            else:
+                raise ValueError(f"Invalid rasa_d_init value: {self.rasa_d_init[adapter_name]}")
 
     def _cache_store(self, key: str, value: Any) -> None:
         self._caches[key] = value
@@ -216,6 +224,7 @@ class Linear(nn.Module, RasaLayer):
         rasa_k: int = 0,
         rasa_alpha: int = 1,
         rasa_dropout: float = 0.0,
+        rasa_d_init: str = "default",
         fan_in_fan_out: bool = False,  # Set this to True if the layer to replace stores weight like (fan_in, fan_out)
         is_target_conv_1d_layer: bool = False,
         **kwargs,
@@ -235,6 +244,7 @@ class Linear(nn.Module, RasaLayer):
             rasa_k,
             rasa_alpha,
             rasa_dropout,
+            rasa_d_init,
         )
         self.is_target_conv_1d_layer = is_target_conv_1d_layer
 

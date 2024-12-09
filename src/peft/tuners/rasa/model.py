@@ -264,6 +264,7 @@ class RasaModel(BaseTuner):
             "rasa_k": rasa_config.rasa_k,
             "rasa_alpha": rasa_config.rasa_alpha,
             "rasa_dropout": rasa_config.rasa_dropout,
+            "rasa_d_init": rasa_config.rasa_d_init,
             "fan_in_fan_out": rasa_config.fan_in_fan_out,
         }
 
@@ -278,6 +279,7 @@ class RasaModel(BaseTuner):
                 rasa_config.rasa_k,
                 rasa_config.rasa_alpha,
                 rasa_config.rasa_dropout,
+                rasa_config.rasa_d_init,
             )
         else:
             new_module = self._create_new_module(rasa_config, adapter_name, target, **kwargs)

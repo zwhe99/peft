@@ -59,6 +59,7 @@ class RasaConfig(PeftConfig):
 
     r: int = field(default=8, metadata={"help": "Rasa attention dimension"})
     rasa_k: int = field(default=1, metadata={"help": "Rasa left rank"})
+    rasa_d_init: str = field(default="default", metadata={"help": "Rasa D initialization"})
     target_modules: Optional[Union[list[str], str]] = field(
         default=None,
         metadata={
